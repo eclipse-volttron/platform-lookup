@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "id": "platform-123",
+    "address": "tcp://example.com",
+    "public_credentials": "abcdef1234567890",
+    "group": "production"
+  }
+]

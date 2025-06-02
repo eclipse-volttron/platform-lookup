@@ -51,7 +51,7 @@ Each platform registration includes:
 
 - `id`: Unique identifier for the platform (alphanumeric, underscores, and hyphens allowed)
 - `address`: Network address where the platform can be reached (IP, domain, or URI)
-- `public_credential`: Authentication credential (minimum 16 characters)
+- `public_credentials`: Authentication credential (minimum 16 characters)
 - `group`: Optional grouping parameter (defaults to "default")
 
 Example platform registration:
@@ -59,7 +59,7 @@ Example platform registration:
 {
     "id": "platform-123",
     "address": "tcp://example.com",
-    "public_credential": "abcdef1234567890",
+    "public_credentials": "abcdef1234567890",
     "group": "production"
 }
 ```
