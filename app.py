@@ -31,7 +31,7 @@ class Platform(BaseModel):
                     This is the address where the platform can be reached.
                     It can be an IP address, a domain name, or a URI.
                     """)
-    public_credentials: str = Field(...,
+    public_credential: str = Field(...,
                     description="""
                     # Public credential for the platform.  
                     This is the credential that will be used to authenticate with the platform.  For zmq this
@@ -45,7 +45,7 @@ class Platform(BaseModel):
                     This is the group that the platform belongs to.  It is used to group platforms together for
                     routing purposes.  If not specified, the platform will be added to the default group.
                     
-                    This will allow partitioning of platforms in the future.
+                    This willl allow partitioning of platforms in the future.
                     """)
     @field_validator('address')
     @classmethod
@@ -59,7 +59,7 @@ class Platform(BaseModel):
             raise ValueError("Address must be a valid URL, IP address, or protocol URI")
         return v
 
-    @field_validator('public_credentials')
+    @field_validator('public_credential')
     @classmethod
     def credential_must_be_valid(cls, v):
         """Validate credential format"""
@@ -67,19 +67,18 @@ class Platform(BaseModel):
             raise ValueError("Public credential must be at least 16 characters long")
         return v
     
-    model_config = {}
-    #model_config = {
-    #    "json_schema_extra": {
-    #        "examples": [
-    #            {
-    #                "id": "platform-123",
-    #                "address": "tcp://example.com",
-    #                "public_credentials": "abcdef1234567890",
-    #                "group": "production"
-    #            }
-    #        ]
-    #    }
-    #}
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "id": "platform-123",
+                    "address": "tcp://example.com",
+                    "public_credential": "abcdef1234567890",
+                    "group": "production"
+                }
+            ]
+        }
+    }
     
 def get_platforms():
     """Dependency to get platforms with thread safety"""
@@ -118,15 +117,9 @@ async def register_platform(platform: Platform):
     The following fields must be unique across all platforms:
     - id: The platform's unique identifier
     - address: The platform's network address
-    - public_credentials: The platform's public authentication credential
+    - public_credential: The platform's public authentication credential
     """
     platforms = get_platforms()
-
-    # if platform already exists and is the same, return it
-    # TODO: This is a simple check, consider using a more robust method for checking equality
-    for itr in platforms:
-        if platform.id == itr.id and platform.address == itr.address and platform.public_credentials == itr.public_credentials:
-            return platform
     
     # Check for duplicate ID
     if any(p.id == platform.id for p in platforms):
@@ -136,9 +129,9 @@ async def register_platform(platform: Platform):
     if any(p.address == platform.address for p in platforms):
         raise HTTPException(status_code=400, detail=f"Platform with address '{platform.address}' already exists")
     
-    # Check for duplicate public_credentials
-    if any(p.public_credentials == platform.public_credentials for p in platforms):
-        raise HTTPException(status_code=400, detail=f"Platform with public credential '{platform.public_credentials}' already exists")
+    # Check for duplicate public_credential
+    if any(p.public_credential == platform.public_credential for p in platforms):
+        raise HTTPException(status_code=400, detail=f"Platform with public credential '{platform.public_credential}' already exists")
     
     platforms.append(platform)
     _store_platforms(platforms)
