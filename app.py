@@ -120,6 +120,12 @@ async def register_platform(platform: Platform):
     - public_credentials: The platform's public authentication credential
     """
     platforms = get_platforms()
+
+    # if platform already exists and is the same, return it
+    # TODO: This is a simple check, consider using a more robust method for checking equality
+    for itr in platforms:
+        if platform.id == itr.id and platform.address == itr.address and platform.public_credentials == itr.public_credentials:
+            return platform
     
     # Check for duplicate ID
     if any(p.id == platform.id for p in platforms):
