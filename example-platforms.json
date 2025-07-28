@@ -1,0 +1,16 @@
+[
+    {
+        "id": "fed1",
+        "address": "tcp://127.0.0.1:22916",
+        "public_credentials": "_nvKaPm8FPla3h-fvxdOA0ixC8txLcjkiqbI-hbfl0g",
+        "group": "default",
+        "last_modified_ip": "127.0.0.1"
+    },
+    {
+        "id": "fed-2",
+        "address": "tcp://127.0.0.1:22917",
+        "public_credentials": "eVvtGZ9yraJQLwHsPJc3gq8ySEiUrFo6ySUWa4D0fxM",
+        "group": "default",
+        "last_modified_ip": "127.0.0.1"
+    }
+]

@@ -21,12 +21,14 @@ A FastAPI-based microservice for managing platform registrations and lookups. Th
 ## Installation
 
 1. Clone the repository:
+
    ```bash
    git clone [repository-url]
    cd platform-lookup
    ```
 
 2. Install dependencies:
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -34,6 +36,7 @@ A FastAPI-based microservice for managing platform registrations and lookups. Th
 ## Usage
 
 1. Start the server:
+
    ```bash
    uvicorn app:app --reload
    ```
@@ -55,6 +58,7 @@ Each platform registration includes:
 - `group`: Optional grouping parameter (defaults to "default")
 
 Example platform registration:
+
 ```json
 {
     "id": "platform-123",

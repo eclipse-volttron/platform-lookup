@@ -1,8 +1,8 @@
 import json
 from threading import Lock
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from pydantic import BaseModel, Field, field_validator
-from typing import List
+from typing import List, Optional
 
 app = FastAPI(
     title="Platform Management API",
@@ -13,6 +13,14 @@ app = FastAPI(
 platform_file = "platforms.json"
 lock = Lock()
 DEFAULT_GROUP = "default"
+
+class PlatformWithIP(BaseModel):
+    """Internal model for storing platform data with IP tracking"""
+    id: str
+    address: str
+    public_credentials: str
+    group: str
+    last_modified_ip: Optional[str] = None
 
 class Platform(BaseModel):
     id: str = Field(..., 
@@ -98,17 +106,32 @@ def _load_platforms():
     try:
         with open(platform_file, "r") as f:
             platforms_data = json.load(f)
-            return [Platform(**p) for p in platforms_data]
+            return [PlatformWithIP(**p) for p in platforms_data]
     except FileNotFoundError:
         return []
+
+def _get_client_ip(request: Request) -> str:
+    """Extract client IP address from request"""
+    # Check for forwarded headers first (in case of proxy/load balancer)
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        # Take the first IP if there are multiple
+        return forwarded_for.split(",")[0].strip()
+    
+    real_ip = request.headers.get("X-Real-IP")
+    if real_ip:
+        return real_ip
+    
+    # Fall back to direct client IP
+    return request.client.host if request.client else "unknown"
 
 @app.get("/", tags=["Root"])
 async def root():
     """API root endpoint"""
     return {"message": app.title, "version": app.version}
 
-@app.post("/platform", response_model=Platform, status_code=201, tags=["Platforms"])
-async def register_platform(platform: Platform):
+@app.post("/platform", response_model=Platform, tags=["Platforms"])
+async def register_platform(platform: Platform, request: Request, response: Response):
     """
     Register a new platform
     
@@ -118,33 +141,68 @@ async def register_platform(platform: Platform):
     - id: The platform's unique identifier
     - address: The platform's network address
     - public_credentials: The platform's public authentication credential
+    
+    Returns:
+    - 200: If the same IP submits identical platform data
+    - 201: If new platform is created or existing platform is updated
     """
     platforms = get_platforms()
+    client_ip = _get_client_ip(request)
 
-    # if platform already exists and is the same, return it
-    # TODO: This is a simple check, consider using a more robust method for checking equality
-    for itr in platforms:
-        if platform.id == itr.id and platform.address == itr.address and platform.public_credentials == itr.public_credentials:
-            return platform
+    # Check if platform already exists
+    for i, existing_platform in enumerate(platforms):
+        if existing_platform.id == platform.id:
+            # Check if this is the same request from the same IP
+            if (existing_platform.last_modified_ip == client_ip and
+                existing_platform.address == platform.address and
+                existing_platform.public_credentials == platform.public_credentials and
+                existing_platform.group == platform.group):
+                # Same data from same IP - return 200
+                response.status_code = 200
+                return Platform(**existing_platform.dict(exclude={'last_modified_ip'}))
+            
+            # Different data or different IP - check for conflicts with other platforms
+            for j, other_platform in enumerate(platforms):
+                if j != i:  # Skip the current platform being updated
+                    if other_platform.address == platform.address:
+                        raise HTTPException(status_code=400, detail=f"Platform with address '{platform.address}' already exists")
+                    if other_platform.public_credentials == platform.public_credentials:
+                        raise HTTPException(status_code=400, detail=f"Platform with public credential '{platform.public_credentials}' already exists")
+            
+            # Update existing platform
+            platforms[i] = PlatformWithIP(
+                id=platform.id,
+                address=platform.address,
+                public_credentials=platform.public_credentials,
+                group=platform.group,
+                last_modified_ip=client_ip
+            )
+            _store_platforms(platforms)
+            response.status_code = 201
+            return Platform(**platforms[i].dict(exclude={'last_modified_ip'}))
     
-    # Check for duplicate ID
-    if any(p.id == platform.id for p in platforms):
-        raise HTTPException(status_code=400, detail=f"Platform with ID '{platform.id}' already exists")
-    
-    # Check for duplicate address
+    # Check for duplicate address or credentials with existing platforms
     if any(p.address == platform.address for p in platforms):
         raise HTTPException(status_code=400, detail=f"Platform with address '{platform.address}' already exists")
     
-    # Check for duplicate public_credentials
     if any(p.public_credentials == platform.public_credentials for p in platforms):
         raise HTTPException(status_code=400, detail=f"Platform with public credential '{platform.public_credentials}' already exists")
     
-    platforms.append(platform)
+    # Create new platform
+    new_platform = PlatformWithIP(
+        id=platform.id,
+        address=platform.address,
+        public_credentials=platform.public_credentials,
+        group=platform.group,
+        last_modified_ip=client_ip
+    )
+    platforms.append(new_platform)
     _store_platforms(platforms)
-    return platform
+    response.status_code = 201
+    return Platform(**new_platform.dict(exclude={'last_modified_ip'}))
 
 @app.get("/platform/{platform_id}", response_model=Platform, tags=["Platforms"])
-async def read_platform(platform_id: str, platforms: List[Platform] = Depends(get_platforms)):
+async def read_platform(platform_id: str, platforms: List[PlatformWithIP] = Depends(get_platforms)):
     """
     Get platform details by ID
     
@@ -152,17 +210,22 @@ async def read_platform(platform_id: str, platforms: List[Platform] = Depends(ge
     """
     for platform in platforms:
         if platform.id == platform_id:
-            return platform
+            return Platform(**platform.dict(exclude={'last_modified_ip'}))
     raise HTTPException(status_code=404, detail=f"Platform with ID '{platform_id}' not found")
 
 @app.put("/platform/{platform_id}", response_model=Platform, tags=["Platforms"])
-async def update_platform(platform_id: str, updated_platform: Platform):
+async def update_platform(platform_id: str, updated_platform: Platform, request: Request, response: Response):
     """
     Update platform information
     
     Update an existing platform's details
+    
+    Returns:
+    - 200: If the same IP submits identical platform data
+    - 201: If platform is updated with new data
     """
     platforms = get_platforms()
+    client_ip = _get_client_ip(request)
     
     for i, platform in enumerate(platforms):
         if platform.id == platform_id:
@@ -170,9 +233,34 @@ async def update_platform(platform_id: str, updated_platform: Platform):
             if updated_platform.id != platform_id:
                 raise HTTPException(status_code=400, detail="Cannot change platform ID")
             
-            platforms[i] = updated_platform
+            # Check if this is the same request from the same IP
+            if (platform.last_modified_ip == client_ip and
+                platform.address == updated_platform.address and
+                platform.public_credentials == updated_platform.public_credentials and
+                platform.group == updated_platform.group):
+                # Same data from same IP - return 200
+                response.status_code = 200
+                return Platform(**platform.dict(exclude={'last_modified_ip'}))
+            
+            # Check for conflicts with other platforms (excluding current one)
+            for j, other_platform in enumerate(platforms):
+                if j != i:  # Skip the current platform being updated
+                    if other_platform.address == updated_platform.address:
+                        raise HTTPException(status_code=400, detail=f"Platform with address '{updated_platform.address}' already exists")
+                    if other_platform.public_credentials == updated_platform.public_credentials:
+                        raise HTTPException(status_code=400, detail=f"Platform with public credential '{updated_platform.public_credentials}' already exists")
+            
+            # Update platform
+            platforms[i] = PlatformWithIP(
+                id=updated_platform.id,
+                address=updated_platform.address,
+                public_credentials=updated_platform.public_credentials,
+                group=updated_platform.group,
+                last_modified_ip=client_ip
+            )
             _store_platforms(platforms)
-            return updated_platform
+            response.status_code = 201
+            return Platform(**platforms[i].dict(exclude={'last_modified_ip'}))
             
     raise HTTPException(status_code=404, detail=f"Platform with ID '{platform_id}' not found")
 
@@ -195,13 +283,13 @@ async def delete_platform(platform_id: str):
     return {"message": f"Platform '{platform_id}' deleted successfully"}
 
 @app.get("/platforms", response_model=List[Platform], tags=["Platforms"])
-async def list_platforms(platforms: List[Platform] = Depends(get_platforms)):
+async def list_platforms(platforms: List[PlatformWithIP] = Depends(get_platforms)):
     """
     List all platforms
     
     Get a list of all registered platforms
     """
-    return platforms
+    return [Platform(**p.dict(exclude={'last_modified_ip'})) for p in platforms]
 
 if __name__ == "__main__":
     import uvicorn
