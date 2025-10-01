@@ -302,11 +302,15 @@ async def list_platforms(platforms: List[PlatformWithIP] = Depends(get_platforms
     return [p.to_platform() for p in platforms]
 
 def main():
-     # Default port
+    # Default port
     port = 8000
 
     # Check if a custom port is provided as a command-line argument
     if len(sys.argv) > 1:
+        # Check if '--help' is passed as an argument
+        if '--help' in sys.argv or '-h' in sys.argv:
+            print("\nUsage: volttron-platform-lookup [optional port number. defaults to 8000]\n")
+            return
         try:
             port = int(sys.argv[1])
         except ValueError:
