@@ -1,4 +1,5 @@
 import json
+import sys
 from threading import Lock
 from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from pydantic import BaseModel, Field, field_validator
@@ -300,6 +301,20 @@ async def list_platforms(platforms: List[PlatformWithIP] = Depends(get_platforms
     """
     return [p.to_platform() for p in platforms]
 
-if __name__ == "__main__":
+def main():
+     # Default port
+    port = 8000
+
+    # Check if a custom port is provided as a command-line argument
+    if len(sys.argv) > 1:
+        try:
+            port = int(sys.argv[1])
+        except ValueError:
+            print("Invalid port number. Using default port 8000.")
+
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000)
+    uvicorn.run("platform_lookup.app:app", host="0.0.0.0", port=port)
+
+if __name__ == "__main__":
+    main()
+
