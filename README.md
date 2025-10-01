@@ -16,29 +16,30 @@ A FastAPI-based microservice for managing platform registrations and lookups. Th
 - Python 3.x
 - FastAPI
 - Uvicorn
-- Pydantic
 
 ## Installation
 
-1. Clone the repository:
+1. From pypi
+  
+   ```bash
+   pip install volttron-platform-lookup
+   ```
+
+1. From source code:
 
    ```bash
    git clone [repository-url]
    cd platform-lookup
+   poetry install
    ```
 
-2. Install dependencies:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
 
 ## Usage
 
 1. Start the server:
 
    ```bash
-   uvicorn app:app --reload
+   volttron-platform-lookup <optional port. defaults to 8000>
    ```
 
 2. The API will be available at `http://localhost:8000`
