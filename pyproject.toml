@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "volttron-platform-lookup"
-version = "0.1.0rc0"
+version = "0.1.0rc1"
 description = "Web service that runs outside of VOLTTRON server and let VOLTTRON instance to register itself and lookup for services that can be part of a federated group"
 authors = [ "volttron <volttron@pnnl.gov>"]
 license = "Apache-2.0"
