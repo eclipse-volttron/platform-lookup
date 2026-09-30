@@ -133,3 +133,4 @@ ENV/
 env/
 env.bak/
 venv.bak/
+registration.key
