@@ -1,8 +1,9 @@
+import functools
 import json
 import sys
 import os
 import secrets
-from threading import Lock
+from threading import RLock
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Header
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
@@ -15,8 +16,23 @@ app = FastAPI(
 
 platform_file = "platforms.json"
 password_file = "registration.key"
-lock = Lock()
+# Re-entrant: write endpoints hold it for the whole read-modify-write cycle, and
+# get_platforms/_store_platforms acquire it again internally.
+lock = RLock()
 DEFAULT_GROUP = "default"
+
+
+def _serialized(fn):
+    """Run an endpoint while holding the platform lock so that the load/modify/store
+    sequence is atomic and concurrent writes cannot overwrite each other.
+
+    The wrapped endpoints must not await anything while the lock is held.
+    """
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        with lock:
+            return await fn(*args, **kwargs)
+    return wrapper
 
 def _generate_installation_password() -> str:
     """Generate a secure random password for this installation"""
@@ -36,6 +52,23 @@ def _load_or_create_installation_password() -> str:
 
 # Load installation password at startup
 INSTALLATION_PASSWORD = _load_or_create_installation_password()
+
+
+def _matches(candidate: Optional[str], expected: str) -> bool:
+    """Constant-time string comparison (safe for non-ASCII input)."""
+    if candidate is None:
+        return False
+    return secrets.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _require_master_password(registration_password: Optional[str]) -> None:
+    """Write operations require the master registration password only.
+
+    Platform public credentials are not accepted, which prevents platforms from
+    impersonating each other using publicly-visible credentials.
+    """
+    if not _matches(registration_password, INSTALLATION_PASSWORD):
+        raise HTTPException(status_code=401, detail="Invalid registration password")
 
 class PlatformWithIP(BaseModel):
     """Internal model for storing platform data with IP tracking"""
@@ -168,27 +201,19 @@ def _validate_read_auth(auth_header: Optional[str], platforms: Optional[List[Pla
         raise HTTPException(status_code=401, detail="Authentication required. Provide Registration-Password or Platform-Credentials header.")
 
     # Check if master password
-    if auth_header == INSTALLATION_PASSWORD:
+    if _matches(auth_header, INSTALLATION_PASSWORD):
         return
 
     # Check if valid platform public_credentials
     if platforms:
         for platform in platforms:
-            if auth_header == platform.public_credentials:
+            if _matches(auth_header, platform.public_credentials):
                 return
 
     raise HTTPException(status_code=403, detail="Invalid authentication. Provide valid password or platform credentials.")
 
-def _validate_write_auth(auth_header: Optional[str]) -> None:
-    """Validate authentication for write operations.
-
-    Write operations (PUT/DELETE) require the master registration password only.
-    This prevents platforms from impersonating each other using publicly-visible credentials.
-    """
-    if not auth_header:
-        raise HTTPException(status_code=401, detail="Authentication required. Provide Registration-Password header.")
-
 @app.post("/platform", response_model=Platform, tags=["Platforms"])
+@_serialized
 async def register_platform(
     platform: Platform,
     request: Request,
@@ -211,9 +236,7 @@ async def register_platform(
     - 200: If the same IP submits identical platform data
     - 201: If new platform is created or existing platform is updated
     """
-    # Validate password against installation password
-    if registration_password != INSTALLATION_PASSWORD:
-        raise HTTPException(status_code=401, detail="Invalid registration password")
+    _require_master_password(registration_password)
 
     platforms = get_platforms()
     client_ip = _get_client_ip(request)
@@ -294,6 +317,7 @@ async def read_platform(
     raise HTTPException(status_code=404, detail=f"Platform with ID '{platform_id}' not found")
 
 @app.put("/platform/{platform_id}", response_model=Platform, tags=["Platforms"])
+@_serialized
 async def update_platform(
     platform_id: str,
     updated_platform: Platform,
@@ -313,9 +337,7 @@ async def update_platform(
     - 200: If the same IP submits identical platform data
     - 201: If platform is updated with new data
     """
-    # Validate write authentication (master password only)
-    if registration_password != INSTALLATION_PASSWORD:
-        raise HTTPException(status_code=401, detail="Invalid registration password")
+    _require_master_password(registration_password)
 
     platforms = get_platforms()
     client_ip = _get_client_ip(request)
@@ -358,6 +380,7 @@ async def update_platform(
     raise HTTPException(status_code=404, detail=f"Platform with ID '{platform_id}' not found")
 
 @app.delete("/platform/{platform_id}", tags=["Platforms"])
+@_serialized
 async def delete_platform(
     platform_id: str,
     request: Request,
@@ -371,9 +394,7 @@ async def delete_platform(
     Requires Registration-Password header (master password) for authentication.
     Only admin with master password can delete platforms to prevent impersonation.
     """
-    # Validate write authentication (master password only)
-    if registration_password != INSTALLATION_PASSWORD:
-        raise HTTPException(status_code=401, detail="Invalid registration password")
+    _require_master_password(registration_password)
 
     platforms = get_platforms()
 
